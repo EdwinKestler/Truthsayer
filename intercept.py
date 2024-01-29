@@ -1,5 +1,4 @@
 import argparse
-
 import cv2
 import mediapipe as mp
 from ffpyplayer.player import MediaPlayer
