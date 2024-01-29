@@ -38,6 +38,18 @@ Optional flags:
 - `--ttl` - Number of subsequent frames to display a tell; defaults to 30
 
 Example usage:
+Pre uso: 
+ instala Conda.
+ crea un ambiente virutal conda con python 3.9 : PS> conda create --name <namewithuotbrackest> python=3.9 tensorflow-gpu cudatoolkit=9.0 cudnn=8.1.0 conda-forge   
+ PS \Truthsayer> conda install -c conda-forge cudatoolkit=11.2 cudnn=8.1.0 
+ instala tensorflow 2.10 en el ambiente virtual conda : PS E:\Truthsayer> & e:/Truthsayer/.conda/python.exe -m pip install "tensorflow<2.11"
+ prueba que Tensorflow se haya instalado : PS E:\Truthsayer> & e:/Truthsayer/.conda/python.exe -c "import tensorflow as tf; print(tf.reduce_sum(tf.random.normal([1000, 1000])))"  
+ si tienen problema con tensorflow que no se reoconoce pero ya lo instalaste prueba desinstalando  la version 4.5.5.62 por defecto : PS E:\Truthsayer> & e:/Truthsayer/.conda/python.exe -m pip install -U opencv-python==4.5.5.62      
+ y luego instala pandas por separado: PS E:\Truthsayer> & e:/Truthsayer/.conda/python.exe -m pip install pandas
+ luego deberia correr: PS E:\Truthsayer> & e:/Truthsayer/.conda/python.exe e:/Truthsayer/intercept.py --input 0 --landmarks 1 --flip 1 --record 1  (imput 0) deberia ser la webcam usb. en windows. 
+ 
+  
+ 
 
 - `python intercept.py -h` - Show all argument options
 - `python intercept.py --input 2 --landmarks 1 --flip 1 --record 1` - Camera device 2; overlay landmarks; flip; generate a recording
