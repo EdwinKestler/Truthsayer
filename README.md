@@ -1,22 +1,22 @@
-## Truthsayer
-### A Remote-Control Lie Detector
+## Veraz
+### Un detector de mentiras a control remoto
 
-Truthsayer lets you monitor the heart rate and possible 'tells' of deception from any face, including live video calls or recordings.
+Truthsayer te permite monitorizar el ritmo cardíaco y posibles 'indicios' de engaño desde cualquier rostro, incluidas videollamadas en directo o grabaciones.
 
-Video demo and more info [available 
-here](https://youtu.be/5q-BQ2Q_pqI)!
+Demostración en vídeo y más información [disponible
+aquí](https://youtu.be/5q-BQ2Q_pqI)!
 
-![demo](demo.png)
+![demostración](demostración.png)
 
-TruthSayer uses [OpenCV](https://github.com/opencv/opencv-python) and MediaPipe's [Face Mesh](https://google.github.io/mediapipe/solutions/face_mesh.html#python-solution-api) to perform real-time detect of facial landmarks from video input. It also uses [FER](https://pypi.org/project/fer/) for mood detection. From there, relative differences are calculated to determine significant changes in specific facial movements from a person's baseline, including their:
+TruthSayer usa [OpenCV] (https://github.com/opencv/opencv-python) y [Face Mesh] de MediaPipe (https://google.github.io/mediapipe/solutions/face_mesh.html#python-solution-api ) para realizar la detección en tiempo real de puntos de referencia faciales a partir de la entrada de vídeo. También utiliza [FER](https://pypi.org/project/fer/) para la detección del estado de ánimo. A partir de ahí, se calculan las diferencias relativas para determinar cambios significativos en movimientos faciales específicos desde el punto de referencia de una persona, incluido su:
 
-- Heart rate
-- Blink rate
-- Change in gaze
-- Hand covering face
-- Lip compression
+- Ritmo cardiaco
+- Frecuencia de parpadeo
+- Cambio de mirada
+- Mano cubriéndose la cara
+- Compresión de labios
 
-Truthsayer can optionally include prompts based on a second video feed to better 'mirror' the original input.
+Truthsayer puede incluir opcionalmente indicaciones basadas en una segunda transmisión de video para "reflejar" mejor la entrada original.
 
 Hit `Q` on the preview window to exit the resulting display frame, or 
 `CTRL+C` at the terminal to close the Python process.
