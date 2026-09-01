@@ -1,3 +1,6 @@
+import os
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
+
 import argparse
 import cv2
 import mediapipe as mp
@@ -15,6 +18,29 @@ from fer import FER
 import threading
 import time
 import sys
+
+from analyzers import (
+    CueFusion, DualBaseline, FacialRPPG, FacialVRMS, LinguisticCues, MotionMagnifier,
+    SessionLog, UtteranceTracker, VoiceAnalyzer, draw_hud, is_speaking,
+)
+from agents import CueReactAgent
+
+
+def _silence_keras_progress():
+  """FER/MTCNN call Model.predict every frame; Keras 2.10 logs a progress bar each time."""
+  try:
+    import tensorflow as tf
+    tf.get_logger().setLevel("ERROR")
+    orig = tf.keras.Model.predict
+    def predict(self, *args, **kwargs):
+      kwargs.setdefault("verbose", 0)
+      return orig(self, *args, **kwargs)
+    tf.keras.Model.predict = predict
+  except Exception:
+    pass
+
+
+_silence_keras_progress()
 
 
 # Constants
@@ -59,6 +85,18 @@ ax = None
 line = None
 peakpts = None
 
+rppg_engine = FacialRPPG()
+vrms_engine = FacialVRMS()
+motion_engine = MotionMagnifier()
+voice_engine = None
+fusion_engine = CueFusion()
+react_agent = CueReactAgent()
+linguistic_engine = LinguisticCues()
+utterance_engine = UtteranceTracker()
+baseline_engine = DualBaseline()
+session_log = None
+USE_MAGNIFY = True
+
 def chart_setup():
   global fig, ax, line, peakpts
 
@@ -82,6 +120,7 @@ def decrement_tells(tells):
 def main():
   global TELL_MAX_TTL
   global recording
+  global motion_engine, voice_engine, USE_MAGNIFY, session_log, baseline_engine
 
   parser = argparse.ArgumentParser()
   parser.add_argument('--input', '-i', nargs='*', help='Input video device (number or path), file, or screen dimensions (x y width height), defaults to 0', default=['0'])
@@ -91,6 +130,13 @@ def main():
   parser.add_argument('--ttl', '-t', help='How many frames for each displayed "tell" to last, defaults to 30', default='30')
   parser.add_argument('--record', '-r', help='Set to any value to save a timestamped AVI in current directory')
   parser.add_argument('--second', '-s', help='Secondary video input device (number or path)')
+  parser.add_argument('--magnify', dest='magnify', action='store_true', default=True, help='Show Eulerian motion-magnified face crop (default on)')
+  parser.add_argument('--no-magnify', dest='magnify', action='store_false', help='Disable motion magnification panel')
+  parser.add_argument('--voice', '-v', action='store_true', help='Enable microphone pitch / RMS / frequency analysis')
+  parser.add_argument('--text', help='Optional transcript for lexical markers (Liar-Ai text channel)')
+  parser.add_argument('--log', action='store_true', help='Write JSONL cue + ReAct audit log under logs/')
+  parser.add_argument('--cal-true', type=float, default=30, help='Seconds of truthful general-knowledge talk (0=skip; both 0=old 120-frame warmup)')
+  parser.add_argument('--cal-lie', type=float, default=30, help='Seconds of directed false answers (0=skip)')
   args = parser.parse_args()
 
   if len(args.input) == 1:
@@ -113,8 +159,42 @@ def main():
   if BPM_CHART:
     chart_setup()
 
-  calibrated = False
-  calibration_frames = 0
+  USE_MAGNIFY = bool(args.magnify)
+  motion_engine = MotionMagnifier() if USE_MAGNIFY else None
+  if args.voice:
+    voice_engine = VoiceAnalyzer()
+    voice_engine.start_mic()
+    print("Voice:", voice_engine.status)
+  if args.text:
+    linguistic_engine.update(args.text)
+    print("Transcript tokens:", linguistic_engine.last.get("n_tokens"))
+  if args.log:
+    session_log = SessionLog()
+    print("Session log:", session_log.path)
+
+  baseline_engine = DualBaseline(true_sec=args.cal_true, lie_sec=args.cal_lie, warmup_frames=MAX_FRAMES)
+  baseline_engine.start()
+  print("Calibration: {:.0f}s truth-talk, {:.0f}s directed-fab. N=skip phase, Enter=next, Q=quit".format(
+      args.cal_true, args.cal_lie))
+
+  last_tick = [time.time()]
+
+  def next_fps(file_fps=None):
+    now = time.time()
+    inst = 1.0 / (now - last_tick[0]) if now > last_tick[0] else 30.0
+    last_tick[0] = now
+    if file_fps:
+      return float(file_fps)
+    return inst
+
+  def after_frame():
+    key = cv2.waitKey(1) & 0xFF
+    if key == ord('q'):
+      return True
+    baseline_engine.handle_key(key)
+    baseline_engine.tick()
+    return False
+
   try:
     with mp.solutions.face_mesh.FaceMesh(
         max_num_faces=1,
@@ -139,14 +219,13 @@ def main():
           with mss.mss() as sct: # screenshot; keep BGR for imshow/MediaPipe helper
             while True:
               image = np.array(sct.grab(screen))[:, :, :3] # drop alpha, remain BGR
-              calibration_frames += process(image, face_mesh, hands, calibrated, DRAW_LANDMARKS, BPM_CHART, FLIP)
-              calibrated = (calibration_frames >= MAX_FRAMES)
+              process(image, face_mesh, hands, baseline_engine.ready, DRAW_LANDMARKS, BPM_CHART, FLIP, next_fps())
               if cap2 is not None:
                 process_second(cap2, image, face_mesh, hands)
               cv2.imshow('face', image)
               if RECORD:
                 recording.write(image)
-              if cv2.waitKey(1) & 0xFF == ord('q'):
+              if after_frame():
                 break
         else:
           cap = cv2.VideoCapture(INPUT)
@@ -168,14 +247,13 @@ def main():
           while cap.isOpened():
             success, image = cap.read()
             if not success: break
-            calibration_frames += process(image, face_mesh, hands, calibrated, DRAW_LANDMARKS, BPM_CHART, FLIP, fps)
-            calibrated = (calibration_frames >= MAX_FRAMES)
+            process(image, face_mesh, hands, baseline_engine.ready, DRAW_LANDMARKS, BPM_CHART, FLIP, next_fps(fps))
             if cap2 is not None:
               process_second(cap2, image, face_mesh, hands)
             cv2.imshow('face', image)
             if RECORD:
               recording.write(image)
-            if cv2.waitKey(1) & 0xFF == ord('q'):
+            if after_frame():
               break
           cap.release()
   finally:
@@ -183,6 +261,8 @@ def main():
       cap2.release()
     if recording is not None:
       recording.release()
+    if voice_engine is not None:
+      voice_engine.stop()
     cv2.destroyAllWindows()
 
 
@@ -449,7 +529,7 @@ def get_mood(image):
       calculating_mood = False
 
 
-def add_truth_meter(image, tell_count):
+def add_truth_meter(image, score):
   if meter is None:
     return
   width = image.shape[1]
@@ -459,9 +539,22 @@ def add_truth_meter(image, tell_count):
   resized_meter = cv2.resize(meter, (bg,sm), interpolation=cv2.INTER_AREA)
   image[sm:(sm+sm), bg:(bg+bg), 0:3] = resized_meter[:, :, 0:3]
 
-  if tell_count:
-    tellX = bg + int(bg/4) * (tell_count - 1) # adjust for always-on BPM
-    cv2.rectangle(image, (tellX, int(.9*sm)), (tellX+int(sm/2), int(2.1*sm)), (0,0,0), 2)
+  score = max(0.0, min(1.0, float(score or 0.0)))
+  tellX = bg + int((bg - sm) * score)
+  cv2.rectangle(image, (tellX, int(.9*sm)), (tellX+int(sm/2), int(2.1*sm)), (0,0,0), 2)
+
+
+def face_bbox(image, face, pad=0.08):
+  h, w = image.shape[:2]
+  xs = [face[i].x for i in (10, 152, 234, 454)]
+  ys = [face[i].y for i in (10, 152, 234, 454)]
+  x1 = max(0, int((min(xs) - pad) * w))
+  x2 = min(w, int((max(xs) + pad) * w))
+  y1 = max(0, int((min(ys) - pad) * h))
+  y2 = min(h, int((max(ys) + pad) * h))
+  if x2 - x1 < 8 or y2 - y1 < 8:
+    return None
+  return image[y1:y2, x1:x2]
 
 
 def get_face_relative_area(face):
@@ -486,7 +579,7 @@ def find_face_and_hands(image_original, face_mesh, hands):
 
 
 def process(image, face_mesh, hands, calibrated=False, draw=False, bpm_chart=False, flip=False, fps=None):
-  global tells, calculating_mood
+  global tells, calculating_mood, avg_bpms
   global blinks, hand_on_face, face_area_size
 
   tells = decrement_tells(tells)
@@ -508,10 +601,40 @@ def process(image, face_mesh, hands, calibrated=False, draw=False, bpm_chart=Fal
     cheekL = get_area(image, draw, topL=face[449], topR=face[350], bottomR=face[429], bottomL=face[280])
     cheekR = get_area(image, draw, topL=face[121], topR=face[229], bottomR=face[50], bottomL=face[209])
 
-    bpm_display, bpm_change = get_bpm_tells(cheekL, cheekR, fps, bpm_chart)
-    tells['avg_bpms'] = new_tell(bpm_display) # always show "..." if BPM missing
-    if len(bpm_change):
+    if bpm_chart:
+      get_bpm_tells(cheekL, cheekR, fps, bpm_chart)
+
+    rppg = rppg_engine.update(cheekL, cheekR, fps)
+    pos_bpm = rppg.get("bpm") or 0
+    if pos_bpm >= 40:
+      bpm_display = "BPM: {:.0f}".format(pos_bpm)
+      avg_bpms = avg_bpms[1:] + [pos_bpm]
+      recent = [b for b in avg_bpms[-36:] if b >= 40]
+      allv = [b for b in avg_bpms if b >= 40]
+      bpm_change = ""
+      if len(recent) > 5 and len(allv) > 20:
+        delta = (sum(recent) / len(recent)) - (sum(allv) / len(allv))
+        if delta > SIGNIFICANT_BPM_CHANGE:
+          bpm_change = "Heart rate increasing"
+        elif delta < -SIGNIFICANT_BPM_CHANGE:
+          bpm_change = "Heart rate decreasing"
+    else:
+      bpm_display, bpm_change = "BPM: ...", ""
+    tells['avg_bpms'] = new_tell(bpm_display)
+    if bpm_change:
       tells['bpm_change'] = new_tell(bpm_change)
+
+    vrms = vrms_engine.update(face)
+    if vrms.get("burst"):
+      tells['vrms'] = new_tell("Facial motion burst")
+
+    panel = None
+    motion_energy = 0.0
+    if motion_engine is not None:
+      crop = face_bbox(image, face)
+      panel, motion_energy = motion_engine.update(crop, fps)
+      if motion_energy > 3.0:
+        tells['motion'] = new_tell("Amplified micro-motion")
 
     # Blinking
     blinks = blinks[1:] + [is_blinking(face)]
@@ -540,12 +663,66 @@ def process(image, face_mesh, hands, calibrated=False, draw=False, bpm_chart=Fal
 
     if draw: # overlay face and hand landmarks
       draw_on_frame(image, face_landmarks, hands_landmarks)
+  else:
+    rppg = rppg_engine.snapshot()
+    vrms = vrms_engine.snapshot()
+    panel = motion_engine.panel if motion_engine is not None else None
+    motion_energy = motion_engine.energy if motion_engine is not None else 0.0
+    bpm_change = ""
+
+  voice = voice_engine.poll() if voice_engine is not None else {}
+  if voice.get("voiced") and voice.get("pitch_delta", 0) > 25:
+    tells['pitch'] = new_tell("Pitch rise")
+  if voice.get("voiced") and abs(voice.get("rms_delta", 0)) > 8:
+    tells['voice_rms'] = new_tell("Voice energy shift")
+
+  fusion = fusion_engine.update(tells, rppg, vrms, voice, motion_energy, bpm_change if face_landmarks else "")
+
+  speaking = is_speaking(voice, vrms, voice_engine is not None)
+  closed_utt = utterance_engine.update(speaking, {
+      "bpm": rppg.get("bpm") or 0,
+      "vrms_ratio": vrms.get("ratio") or 0,
+      "cue_load": fusion.get("score") or 0,
+      "pitch_delta": voice.get("pitch_delta") if voice else 0,
+      "gaze": "gaze" in tells,
+      "blink": "blinking" in tells,
+  }, fps)
+  utterance = closed_utt or utterance_engine.current()
+  baseline_engine.note_warmup_face(bool(face_landmarks))
+  if closed_utt:
+    baseline_engine.ingest(closed_utt)
+  bscore = baseline_engine.score(utterance) if baseline_engine.ready else {}
+  bsnap = baseline_engine.snapshot()
+
+  ling = dict(linguistic_engine.snapshot() or {})
+  with mood_lock:
+    if mood:
+      ling["mood"] = mood
+  agent = react_agent.reason(calibrated, tells, rppg, vrms, voice, fusion, ling, utterance, bscore)
+  if agent.get("review"):
+    tells["review"] = new_tell("Human review flagged")
+  if session_log is not None:
+    session_log.write({
+      "tells": {k: v.get("text") for k, v in tells.items()},
+      "rppg_bpm": rppg.get("bpm"),
+      "vrms": vrms.get("vrms"),
+      "voice": {k: voice.get(k) for k in ("pitch", "rms", "voiced", "pitch_delta") if voice},
+      "fusion": fusion,
+      "utterance": utterance,
+      "phase": bsnap.get("phase"),
+      "z_true": bscore.get("z_true"),
+      "contrast": bscore.get("contrast"),
+      "closer": bscore.get("closer"),
+      "agent": agent,
+      "review": agent.get("review"),
+    }, force=bool(agent.get("review") or closed_utt))
 
   if flip:
     cv2.flip(image, 1, dst=image)
 
   add_text(image, tells, calibrated)
-  add_truth_meter(image, len(tells))
+  add_truth_meter(image, fusion.get("score", 0.0))
+  draw_hud(image, rppg, vrms, voice, fusion, panel, calibrated, agent, utterance, bsnap)
 
   return 1 if (face_landmarks and not calibrated) else 0
 
