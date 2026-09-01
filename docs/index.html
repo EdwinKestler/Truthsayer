@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Truthsayer (Veraz) — cue dashboard, not a lie detector</title>
+  <meta name="description" content="Camera-based cue dashboard: visual BPM, motion magnification, VRMS, optional voice, utterance windows, and dual talking calibration. Cue-load only — never a lie verdict.">
+  <link rel="canonical" href="https://edwinkestler.github.io/Truthsayer/">
+  <meta property="og:title" content="Truthsayer (Veraz)">
+  <meta property="og:description" content="Remote cue dashboard for interviews and recordings. Not a lie detector.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://edwinkestler.github.io/Truthsayer/">
+  <meta property="og:image" content="https://edwinkestler.github.io/Truthsayer/assets/demo.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <div class="wrap">
+    <header>
+      <div class="brand"><strong>VERAZ</strong> / Truthsayer</div>
+      <nav>
+        <a href="#measure">Signals</a>
+        <a href="#calibrate">Calibration</a>
+        <a href="#run">Run</a>
+        <a href="#science">Science</a>
+        <a href="https://github.com/EdwinKestler/Truthsayer">GitHub</a>
+      </nav>
+    </header>
+
+    <main id="main">
+      <section class="hero">
+        <p class="kicker">Open-source research dashboard</p>
+        <h1>Surface the cues. Never a lie verdict.</h1>
+        <p class="lede">
+          Truthsayer is a camera-based <strong>cue dashboard</strong> for interviews and recordings:
+          heart rate from the face, blink and gaze change, lip and hand adapters, Eulerian motion
+          magnification, facial-motion VRMS, optional voice pitch, utterance windows, and a 60-second
+          dual talking calibration. Cue-load is an arousal/concordance index — not proof of deception.
+        </p>
+        <div class="cta">
+          <a class="btn primary" href="https://github.com/EdwinKestler/Truthsayer">View on GitHub</a>
+          <a class="btn" href="https://github.com/EdwinKestler/Truthsayer/blob/master/docs/SCIENCE.md">Read the science notes</a>
+          <a class="btn" href="https://youtu.be/5q-BQ2Q_pqI">Prototype walkthrough</a>
+        </div>
+        <p class="warn">
+          Do not treat the meter, “tells,” or cue-load bar as proof of deception.
+          Independent work (DDPM 2021, DePaulo 2003, Harnsberger 2009) shows small effects,
+          high false-positive risk, and chance-level commercial voice-stress tools.
+          Research, training, and exploratory analysis only.
+        </p>
+      </section>
+
+      <figure class="shot">
+        <img src="assets/demo.png" alt="Truthsayer live HUD: face mesh, cue-load bar, BPM, gaze, and motion panel" width="1280" height="720">
+      </figure>
+      <p class="caption">Live HUD: Face Mesh landmarks, cue-load bar, POS rPPG waveform, and motion panel. Marker tracks cue load, not guilt.</p>
+
+      <section id="measure">
+        <h2>What it measures</h2>
+        <div class="grid">
+          <article class="card">
+            <h3>Visual facial BPM</h3>
+            <p>POS rPPG on both cheeks (Wang 2017). HUD shows BPM, SNR, and the pulse waveform.</p>
+          </article>
+          <article class="card">
+            <h3>Motion magnification</h3>
+            <p>Eulerian bandpass on the face crop (Wu 2012). Amplifies micro-movement in the <code>motion x18</code> panel.</p>
+          </article>
+          <article class="card">
+            <h3>VRMS</h3>
+            <p>RMS of Face Mesh landmark velocity. Bursts can be speech, expression, or fidget — not a lie label.</p>
+          </article>
+          <article class="card">
+            <h3>Voice (optional)</h3>
+            <p>Autocorrelation F0, RMS dB, spectral peak. Off until <code>--voice</code>. Worst independently validated modality.</p>
+          </article>
+          <article class="card">
+            <h3>Classic tells</h3>
+            <p>Blink rate, gaze shift, lip compression, hand-on-face, FER mood. Relative to the subject’s own baseline.</p>
+          </article>
+          <article class="card">
+            <h3>Utterance windows</h3>
+            <p>Cue stats over a voiced statement (~0.6 s min, 0.8 s silence to close). Score statements, not isolated frames.</p>
+          </article>
+          <article class="card">
+            <h3>Dual talking calibration</h3>
+            <p>30 s factual answers, then 30 s instructed false answers, then freeze. Interview z-scores vs truth-talk.</p>
+          </article>
+          <article class="card">
+            <h3>ReAct agent</h3>
+            <p>Operational actions only: <code>continue</code>, <code>flag_review</code>, <code>need_more_data</code>. Face-only / motion-only clusters never flag review. Never “lying.”</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="calibrate">
+        <h2>60-second talking calibration</h2>
+        <div class="two">
+          <div class="steps">
+            <div class="step">
+              <div>
+                <h3>CAL TRUE (~30 s)</h3>
+                <p>Answer general-knowledge questions <strong>truthfully</strong>. Builds the truth-talk template.</p>
+              </div>
+            </div>
+            <div class="step">
+              <div>
+                <h3>CAL LIE (~30 s)</h3>
+                <p>Invent <strong>false</strong> answers to similar questions. Builds a directed-fabrication template, not a guilt score.</p>
+              </div>
+            </div>
+            <div class="step">
+              <div>
+                <h3>Interview (frozen)</h3>
+                <p>Utterances are z-scored against truth-talk and compared to the fabrication template. <code>N</code> skips a phase, Enter/Space advances, <code>Q</code> quits.</p>
+              </div>
+            </div>
+          </div>
+          <figure class="meter">
+            <img src="assets/meter.png" alt="Cue-load meter graphic used as a research remnant in the HUD" width="640" height="640">
+          </figure>
+        </div>
+        <p class="caption">Both phases at 0 (<code>--cal-true 0 --cal-lie 0</code>) restore the old silent 120-frame warmup. Closer-to-fabrication is a low-stakes template match, not a lie label.</p>
+      </section>
+
+      <section id="run">
+        <h2>Run it</h2>
+        <p class="keys">Python 3.9 + TensorFlow 2.10 + CUDA 11.2 / cuDNN 8.1 inside <code>.venv</code>. GPU notes in the repo.</p>
+        <pre><code>cd E:\Truthsayer
+&amp; .\.conda\python.exe scripts\setup_gpu_venv.py
+.\.venv\Scripts\Activate.ps1
+python intercept.py --input 0 --landmarks 1 --flip 1 --voice --log</code></pre>
+        <p class="keys">Quit with <kbd>Q</kbd>. Confirm the GPU with <code>python -c "import tensorflow as tf; print(tf.config.list_physical_devices('GPU'))"</code>.</p>
+      </section>
+
+      <section id="science">
+        <h2>What the literature allows</h2>
+        <table>
+          <thead>
+            <tr><th>Claim</th><th>What we do with it</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>DePaulo 2003: median cue effect ~d = 0.10</td>
+              <td>Measure many weak cues; never treat any one as decisive.</td>
+            </tr>
+            <tr>
+              <td>DDPM 2021: POS pulse MAE 3.16 bpm; pulse + rules ~63%</td>
+              <td>Prefer rPPG and gaze over micro-expression counts.</td>
+            </tr>
+            <tr>
+              <td>GLD 2021: VGG “P(lie)” 57.4% vs 58.4% majority baseline</td>
+              <td>Keep statement windows. Skip their face CNN. Face-only never flags review.</td>
+            </tr>
+            <tr>
+              <td>Harnsberger 2009: commercial voice-stress at chance</td>
+              <td>Microphone analysis is optional and off by default.</td>
+            </tr>
+            <tr>
+              <td>No unique autonomic signature of deception</td>
+              <td>HUD says <em>cue load</em>. ReAct never prints “lying” or “deceit.”</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="docs">
+        <h2>Documentation</h2>
+        <ul class="doc-list">
+          <li><a href="https://github.com/EdwinKestler/Truthsayer/blob/master/docs/USAGE.md"><strong>USAGE.md</strong><span>Install, CLI, HUD, calibration keys</span></a></li>
+          <li><a href="https://github.com/EdwinKestler/Truthsayer/blob/master/docs/GPU.md"><strong>GPU.md</strong><span>Windows .venv + CUDA 11.2 / cuDNN 8.1 / ptxas</span></a></li>
+          <li><a href="https://github.com/EdwinKestler/Truthsayer/blob/master/docs/ARCHITECTURE.md"><strong>ARCHITECTURE.md</strong><span>Modules, data flow, threading, color space</span></a></li>
+          <li><a href="https://github.com/EdwinKestler/Truthsayer/blob/master/docs/SCIENCE.md"><strong>SCIENCE.md</strong><span>Cues, citations, design rules, failure modes</span></a></li>
+          <li><a href="https://github.com/EdwinKestler/Truthsayer/blob/master/docs/references/LIAR_AI.md"><strong>LIAR_AI.md</strong><span>rUv gist mapping: ReAct / fusion / HITL</span></a></li>
+          <li><a href="https://github.com/EdwinKestler/Truthsayer/blob/master/docs/references/GLD_2104.12345.md"><strong>GLD_2104.12345.md</strong><span>Why statement windows stay and the VGG lie head does not</span></a></li>
+        </ul>
+      </section>
+    </main>
+
+    <footer>
+      <div>Truthsayer (Veraz) · research / training / exploratory analysis only</div>
+      <div>
+        <a href="https://github.com/EdwinKestler/Truthsayer">Source</a>
+        ·
+        <a href="https://github.com/EdwinKestler/Truthsayer/blob/master/docs/SCIENCE.md">Science</a>
+        ·
+        <a href="https://github.com/EdwinKestler/Truthsayer/blob/master/README.md">README</a>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>

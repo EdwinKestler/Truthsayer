@@ -2,7 +2,7 @@
 
 Remote, camera-based **cue dashboard** for interviews and recordings: heart rate from the face, blink and gaze change, lip and hand adapters, Eulerian motion magnification, facial-motion VRMS, optional voice pitch / RMS, utterance windows, and a 60 s dual talking calibration.
 
-It is built to *surface* signals that deception-research papers actually measure. It is **not** a lie detector. Cue-load is an arousal/concordance index. See [docs/SCIENCE.md](docs/SCIENCE.md). Docs index: **[docs/README.md](docs/README.md)**.
+It is built to *surface* signals that deception-research papers actually measure. It is **not** a lie detector. Cue-load is an arousal/concordance index. See [docs/SCIENCE.md](docs/SCIENCE.md). Docs index: **[docs/README.md](docs/README.md)**. Public site: **[edwinkestler.github.io/Truthsayer](https://edwinkestler.github.io/Truthsayer/)**.
 
 ![demo](demo.png)
 
@@ -76,6 +76,18 @@ CPU TensorFlow works without CUDA; you will see `cudart64_110.dll` warnings.
 ```powershell
 .\.venv\Scripts\python.exe run_smoke_tests.py
 ```
+
+## GitHub Pages
+
+The micro site is static HTML in [`docs/`](docs/) (`index.html`, `404.html`, `assets/`). Markdown under `docs/` is for the repo, not Jekyll.
+
+After the first push, enable Pages once:
+
+1. Repo **Settings → Pages**.
+2. Source: **GitHub Actions** (workflow [`.github/workflows/pages.yml`](.github/workflows/pages.yml)).
+3. Fallback if Actions is unavailable: **Deploy from a branch** → `master` → `/docs`.
+
+Site URL: https://edwinkestler.github.io/Truthsayer/
 
 ## Responsible use
 

@@ -1,6 +1,6 @@
 # Documentation
 
-Truthsayer is a **cue dashboard**, not a lie detector. Start here:
+Truthsayer is a **cue dashboard**, not a lie detector. Public site: **[edwinkestler.github.io/Truthsayer](https://edwinkestler.github.io/Truthsayer/)** (GitHub Pages from this folder’s `index.html`). Start here:
 
 | Doc | What it covers |
 |---|---|
