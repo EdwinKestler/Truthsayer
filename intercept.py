@@ -17,23 +17,16 @@ import time
 import sys
 
 
-MAX_FRAMES = 120 # modify this to affect calibration period and amount of "lookback"
-RECENT_FRAMES = int(MAX_FRAMES / 10) # modify to affect sensitivity to recent changes
-
-EYE_BLINK_HEIGHT = .15 # threshold may depend on relative face shape
-
+# Constants
+MAX_FRAMES = 120
+RECENT_FRAMES = int(MAX_FRAMES / 10)
+EYE_BLINK_HEIGHT = .15
 SIGNIFICANT_BPM_CHANGE = 8
-
-LIP_COMPRESSION_RATIO = .35 # from testing, ~universal
-
-TELL_MAX_TTL = 30 # how long to display a finding, optionally set in args
-
+LIP_COMPRESSION_RATIO = .35
+TELL_MAX_TTL = 30
 TEXT_HEIGHT = 30
-
 FACEMESH_FACE_OVAL = [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109, 10]
-
 EPOCH = time.time()
-
 
 recording = None
 
@@ -56,6 +49,7 @@ gaze_values = [0] * MAX_FRAMES
 emotion_detector = FER(mtcnn=True)
 calculating_mood = False
 mood = ''
+mood_lock = threading.Lock()
 
 meter = cv2.imread('meter.png')
 
@@ -111,82 +105,85 @@ def main():
     TELL_MAX_TTL = int(args.ttl)
   RECORD = args.record is not None
 
-  SECOND = int(args.second) if (args.second or "").isdigit() else args.second
+  cap2 = None
+  if args.second is not None:
+    second_src = int(args.second) if args.second.isdigit() else args.second
+    cap2 = cv2.VideoCapture(second_src)
 
   if BPM_CHART:
     chart_setup()
 
-  if SECOND:
-    cap2 = cv2.VideoCapture(SECOND)
-
   calibrated = False
   calibration_frames = 0
-  with mp.solutions.face_mesh.FaceMesh(
-      max_num_faces=1,
-      refine_landmarks=True,
-      min_detection_confidence=0.5,
-      min_tracking_confidence=0.5) as face_mesh:
-    with mp.solutions.hands.Hands(
-        max_num_hands=2,
-        min_detection_confidence=0.7) as hands:
-      if len(args.input) == 4:
-        screen = {
-          "top": int(args.input[0]),
-          "left": int(args.input[1]),
-          "width": int(args.input[2]),
-          "height": int(args.input[3])
-        }
-        with mss.mss() as sct: # screenshot
-          while True:
-            image = np.array(sct.grab(screen))[:, :, :3] # remove alpha channel
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            calibration_frames += process(image, face_mesh, hands, calibrated, DRAW_LANDMARKS, BPM_CHART, FLIP)
+  try:
+    with mp.solutions.face_mesh.FaceMesh(
+        max_num_faces=1,
+        refine_landmarks=True,
+        min_detection_confidence=0.5,
+        min_tracking_confidence=0.5) as face_mesh:
+      with mp.solutions.hands.Hands(
+          max_num_hands=2,
+          min_detection_confidence=0.7) as hands:
+        if len(args.input) == 4:
+          screen = {
+            "top": int(args.input[0]),
+            "left": int(args.input[1]),
+            "width": int(args.input[2]),
+            "height": int(args.input[3])
+          }
+          if RECORD:
+            RECORDING_FILENAME = str(datetime.now()).replace('.','').replace(':','') + '.avi'
+            recording = cv2.VideoWriter(
+              RECORDING_FILENAME, cv2.VideoWriter_fourcc(*'MJPG'), 10,
+              (screen["width"], screen["height"]))
+          with mss.mss() as sct: # screenshot; keep BGR for imshow/MediaPipe helper
+            while True:
+              image = np.array(sct.grab(screen))[:, :, :3] # drop alpha, remain BGR
+              calibration_frames += process(image, face_mesh, hands, calibrated, DRAW_LANDMARKS, BPM_CHART, FLIP)
+              calibrated = (calibration_frames >= MAX_FRAMES)
+              if cap2 is not None:
+                process_second(cap2, image, face_mesh, hands)
+              cv2.imshow('face', image)
+              if RECORD:
+                recording.write(image)
+              if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+        else:
+          cap = cv2.VideoCapture(INPUT)
+          fps = None
+          if isinstance(INPUT, str) and INPUT.find('.') > -1: # from file
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            print("FPS:", fps)
+          else: # from device
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+            cap.set(cv2.CAP_PROP_FPS, 30)
+
+          if RECORD:
+            RECORDING_FILENAME = str(datetime.now()).replace('.','').replace(':','') + '.avi'
+            FRAME_SIZE = (int(cap.get(3)), int(cap.get(4)))
+            recording = cv2.VideoWriter(
+              RECORDING_FILENAME, cv2.VideoWriter_fourcc(*'MJPG'), 10, FRAME_SIZE)
+
+          while cap.isOpened():
+            success, image = cap.read()
+            if not success: break
+            calibration_frames += process(image, face_mesh, hands, calibrated, DRAW_LANDMARKS, BPM_CHART, FLIP, fps)
             calibrated = (calibration_frames >= MAX_FRAMES)
-            if SECOND:
+            if cap2 is not None:
               process_second(cap2, image, face_mesh, hands)
             cv2.imshow('face', image)
             if RECORD:
               recording.write(image)
             if cv2.waitKey(1) & 0xFF == ord('q'):
               break
-      else:
-        cap = cv2.VideoCapture(INPUT)
-        fps = None
-        if isinstance(INPUT, str) and INPUT.find('.') > -1: # from file
-          fps = cap.get(cv2.CAP_PROP_FPS)
-          print("FPS:", fps)
-          # cap.set(cv2.CAP_PROP_BUFFERSIZE, 10)
-        else: # from device
-          cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-          cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
-          cap.set(cv2.CAP_PROP_FPS, 30)
-
-        if RECORD:
-          RECORDING_FILENAME = str(datetime.now()).replace('.','').replace(':','') + '.avi'
-          FPS_OUT = 10
-          FRAME_SIZE = (int(cap.get(3)), int(cap.get(4)))
-          recording = cv2.VideoWriter(
-            RECORDING_FILENAME, cv2.VideoWriter_fourcc(*'MJPG'), FPS_OUT, FRAME_SIZE)
-
-        while cap.isOpened():
-          success, image = cap.read()
-          if not success: break
-          calibration_frames += process(image, face_mesh, hands, calibrated, DRAW_LANDMARKS, BPM_CHART, FLIP, fps)
-          calibrated = (calibration_frames >= MAX_FRAMES)
-          if SECOND:
-            process_second(cap2, image, face_mesh, hands)
-          cv2.imshow('face', image)
-          if RECORD:
-            recording.write(image)
-          if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-
-        cap.release()
-        if SECOND:
-          cap2.release()
-        if RECORD:
-          recording.release()
-  cv2.destroyAllWindows()
+          cap.release()
+  finally:
+    if cap2 is not None:
+      cap2.release()
+    if recording is not None:
+      recording.release()
+    cv2.destroyAllWindows()
 
 
 def new_tell(result):
@@ -223,11 +220,12 @@ def draw_on_frame(image, face_landmarks, hands_landmarks):
 
 
 def add_text(image, tells, calibrated):
-  global mood
+  with mood_lock:
+    current_mood = mood
 
   text_y = TEXT_HEIGHT
-  if mood:
-    write("Mood: {}".format(mood), image, int(.75 * image.shape[1]), TEXT_HEIGHT)
+  if current_mood:
+    write("Mood: {}".format(current_mood), image, int(.75 * image.shape[1]), TEXT_HEIGHT)
   if calibrated:
     for tell in tells.values():
       write(tell['text'], image, 10, text_y)
@@ -250,27 +248,50 @@ def get_aspect_ratio(top, bottom, right, left):
 
 
 def get_area(image, draw, topL, topR, bottomR, bottomL):
-  topY = int((topR.y+topL.y)/2 * image.shape[0])
-  botY = int((bottomR.y+bottomL.y)/2 * image.shape[0])
-  leftX = int((topL.x+bottomL.x)/2 * image.shape[1])
-  rightX = int((topR.x+bottomR.x)/2 * image.shape[1])
+  h, w = image.shape[:2]
+  topY = int((topR.y+topL.y)/2 * h)
+  botY = int((bottomR.y+bottomL.y)/2 * h)
+  leftX = int((topL.x+bottomL.x)/2 * w)
+  rightX = int((topR.x+bottomR.x)/2 * w)
 
   if draw:
-    image = cv2.circle(image, (leftX,topY), 2, (255,0,0), 2)
-    image = cv2.circle(image, (leftX,botY), 2, (255,0,0), 2)
-    image = cv2.circle(image, (rightX,topY), 2, (255,0,0), 2)
-    image = cv2.circle(image, (rightX,botY), 2, (255,0,0), 2)
+    cv2.circle(image, (leftX,topY), 2, (255,0,0), 2)
+    cv2.circle(image, (leftX,botY), 2, (255,0,0), 2)
+    cv2.circle(image, (rightX,topY), 2, (255,0,0), 2)
+    cv2.circle(image, (rightX,botY), 2, (255,0,0), 2)
 
-  return image[topY:botY, rightX:leftX]
+  x1, x2 = sorted((leftX, rightX))
+  y1, y2 = sorted((topY, botY))
+  x1 = max(0, min(x1, w))
+  x2 = max(0, min(x2, w))
+  y1 = max(0, min(y1, h))
+  y2 = max(0, min(y2, h))
+  if (x2 - x1) < 2 or (y2 - y1) < 2:
+    return None
+  return image[y1:y2, x1:x2]
+
+
+def _bpm_display_from_buffer():
+  valid = [bpm for bpm in avg_bpms if bpm > 0]
+  if valid:
+    return "BPM: {} ({})".format(int(valid[-1]), len(valid)), ""
+  return "BPM: ...", ""
 
 
 def get_bpm_tells(cheekL, cheekR, fps, bpm_chart):
   global hr_times, hr_values, avg_bpms
   global ax, line, peakpts
 
-  cheekLwithoutBlue = np.average(cheekL[:, :, 1:3])
-  cheekRwithoutBlue = np.average(cheekR[:, :, 1:3])
-  hr_values = hr_values[1:] + [cheekLwithoutBlue + cheekRwithoutBlue]
+  if (cheekL is None or cheekR is None
+      or cheekL.size == 0 or cheekR.size == 0
+      or cheekL.ndim < 3 or cheekR.ndim < 3):
+    return _bpm_display_from_buffer()
+
+  sample = np.average(cheekL[:, :, 1:3]) + np.average(cheekR[:, :, 1:3])
+  if not np.isfinite(sample):
+    return _bpm_display_from_buffer()
+
+  hr_values = hr_values[1:] + [float(sample)]
 
   if not fps:
     hr_times = hr_times[1:] + [time.time() - EPOCH]
@@ -279,6 +300,9 @@ def get_bpm_tells(cheekL, cheekR, fps, bpm_chart):
     line.set_data(hr_times, hr_values)
     ax.relim()
     ax.autoscale()
+
+  if not np.all(np.isfinite(hr_values)):
+    return _bpm_display_from_buffer()
 
   peaks, _ = find_peaks(hr_values,
     threshold=.1,
@@ -292,7 +316,14 @@ def get_bpm_tells(cheekL, cheekR, fps, bpm_chart):
   if bpm_chart:
     peakpts.set_data(peak_times, [hr_values[i] for i in peaks])
 
-  bpms = 60 * np.diff(peak_times) / (fps or 1)
+  ibis = np.diff(peak_times)
+  ibis = ibis[ibis > 0]
+  if ibis.size == 0:
+    bpms = np.array([])
+  elif fps:
+    bpms = 60.0 * float(fps) / ibis
+  else:
+    bpms = 60.0 / ibis
   bpms = bpms[(bpms > 50) & (bpms < 150)] # filter to reasonable BPM range
   recent_bpms = bpms[(-3 * RECENT_FRAMES):] # HR slower signal than other tells
 
@@ -304,19 +335,17 @@ def get_bpm_tells(cheekL, cheekR, fps, bpm_chart):
 
   avg_bpms = avg_bpms[1:] + [recent_avg_bpm]
 
-  bpm_delta = 0
   bpm_change = ""
-
   if len(recent_bpms) > 2:
-    all_bpms = list(filter(lambda bpm: bpm != '-', avg_bpms))
-    all_avg_bpm = sum(all_bpms) / len(all_bpms)
-    avg_recent_bpm = sum(recent_bpms) / len(recent_bpms)
-    bpm_delta = avg_recent_bpm - all_avg_bpm
-
-    if bpm_delta > SIGNIFICANT_BPM_CHANGE:
-      bpm_change = "Heart rate increasing"
-    elif bpm_delta < -SIGNIFICANT_BPM_CHANGE:
-      bpm_change = "Heart rate decreasing"
+    all_bpms = [bpm for bpm in avg_bpms if bpm > 0]
+    if all_bpms:
+      all_avg_bpm = sum(all_bpms) / len(all_bpms)
+      avg_recent_bpm = sum(recent_bpms) / len(recent_bpms)
+      bpm_delta = avg_recent_bpm - all_avg_bpm
+      if bpm_delta > SIGNIFICANT_BPM_CHANGE:
+        bpm_change = "Heart rate increasing"
+      elif bpm_delta < -SIGNIFICANT_BPM_CHANGE:
+        bpm_change = "Heart rate decreasing"
 
   return bpm_display, bpm_change
 
@@ -373,16 +402,18 @@ def get_avg_gaze(face):
 
 def get_gaze(face, iris_L_side, iris_R_side, eye_L_corner, eye_R_corner):
   iris = (
-    face[iris_L_side].x + face[iris_R_side].x,
-    face[iris_L_side].y + face[iris_R_side].y,
+    (face[iris_L_side].x + face[iris_R_side].x) / 2,
+    (face[iris_L_side].y + face[iris_R_side].y) / 2,
   )
   eye_center = (
-    face[eye_L_corner].x + face[eye_R_corner].x,
-    face[eye_L_corner].y + face[eye_R_corner].y,
+    (face[eye_L_corner].x + face[eye_R_corner].x) / 2,
+    (face[eye_L_corner].y + face[eye_R_corner].y) / 2,
   )
 
   gaze_dist = dist.euclidean(iris, eye_center)
   eye_width = abs(face[eye_R_corner].x - face[eye_L_corner].x)
+  if eye_width == 0:
+    return 0
   gaze_relative = gaze_dist / eye_width
 
   if (eye_center[0] - iris[0]) < 0: # flip along x for looking L vs R
@@ -408,13 +439,19 @@ def get_lip_ratio(face):
 def get_mood(image):
   global emotion_detector, calculating_mood, mood
 
-  detected_mood, score = emotion_detector.top_emotion(image)
-  calculating_mood = False
-  if score and (score > .4 or detected_mood == 'neutral'):
-    mood = detected_mood
+  try:
+    detected_mood, score = emotion_detector.top_emotion(image)
+    with mood_lock:
+      if score and (score > .4 or detected_mood == 'neutral'):
+        mood = detected_mood
+  finally:
+    with mood_lock:
+      calculating_mood = False
 
 
 def add_truth_meter(image, tell_count):
+  if meter is None:
+    return
   width = image.shape[1]
   sm = int(width / 64)
   bg = int(width / 3.2)
@@ -459,17 +496,20 @@ def process(image, face_mesh, hands, calibrated=False, draw=False, bpm_chart=Fal
     face = face_landmarks.landmark
     face_area_size = get_face_relative_area(face)
 
-    if not calculating_mood:
-      emothread = threading.Thread(target=get_mood, args=(image,))
+    with mood_lock:
+      start_mood = not calculating_mood
+      if start_mood:
+        calculating_mood = True
+    if start_mood:
+      emothread = threading.Thread(target=get_mood, args=(image.copy(),), daemon=True)
       emothread.start()
-      calculating_mood = True
 
     # TODO check cheek visibility?
     cheekL = get_area(image, draw, topL=face[449], topR=face[350], bottomR=face[429], bottomL=face[280])
     cheekR = get_area(image, draw, topL=face[121], topR=face[229], bottomR=face[50], bottomL=face[209])
 
-    avg_bpms, bpm_change = get_bpm_tells(cheekL, cheekR, fps, bpm_chart)
-    tells['avg_bpms'] = new_tell(avg_bpms) # always show "..." if BPM missing
+    bpm_display, bpm_change = get_bpm_tells(cheekL, cheekR, fps, bpm_chart)
+    tells['avg_bpms'] = new_tell(bpm_display) # always show "..." if BPM missing
     if len(bpm_change):
       tells['bpm_change'] = new_tell(bpm_change)
 
@@ -502,7 +542,7 @@ def process(image, face_mesh, hands, calibrated=False, draw=False, bpm_chart=Fal
       draw_on_frame(image, face_landmarks, hands_landmarks)
 
   if flip:
-    image = cv2.flip(image, 1) # flip image horizontally
+    cv2.flip(image, 1, dst=image)
 
   add_text(image, tells, calibrated)
   add_truth_meter(image, len(tells))
