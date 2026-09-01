@@ -84,7 +84,7 @@ The micro site is static HTML in [`docs/`](docs/) (`index.html`, `404.html`, `as
 After the first push, enable Pages once:
 
 1. Repo **Settings → Pages**.
-2. Source: **GitHub Actions** (workflow [`.github/workflows/pages.yml`](.github/workflows/pages.yml)).
+2. Source: **GitHub Actions** (workflow [`.github/workflows/static.yml`](.github/workflows/static.yml)).
 3. Fallback if Actions is unavailable: **Deploy from a branch** → `master` → `/docs`.
 
 Site URL: https://edwinkestler.github.io/Truthsayer/
